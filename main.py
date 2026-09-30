@@ -1,5 +1,6 @@
 from pathlib import Path
 from xml.etree import ElementTree
+from fpdf import FPDF
 import json
 
 NOTES_ROOT = Path("notes")
