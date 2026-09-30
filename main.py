@@ -7,6 +7,24 @@ NOTES_ROOT = Path("notes")
 NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
 NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
 
+NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
+NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
+EXPORT_TARGET_PER_NOTE = Path("Exported PDFs") / "{datetime}" / "{groupName}"
+
+def pf(path: Path, **kwargs):
+    """
+    Formats a pathlib.Path using .format()
+
+    Params: 
+        path: a pathlib.Path
+        **kwargs: parameters to pass to .format()
+
+    Returns: 
+        str: formatted string
+    """
+
+    return path.__str__().format(**kwargs)
+
 def list_groups() -> dict[str, str]:
     group_ids: dict[str | None, str] = {None: "[Not grouped]"}
     if NOTES_LABEL_PATH.exists():
