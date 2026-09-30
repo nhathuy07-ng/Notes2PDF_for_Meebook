@@ -22,6 +22,8 @@ def list_groups() -> dict[str, str]:
 
 def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
     note_ids: dict[str, str] = {}
+    per_group_count: dict[str, str] = {}
+
     print(group_ids)
     if NOTES_LIST_PATH.exists():
         with open(NOTES_LIST_PATH) as o:
@@ -40,9 +42,14 @@ def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
                     if is_standalone and is_in_groups:
                         note_ids[note_metadata['noteId']] = note_metadata['noteName']
 
-            return note_ids
+                        # increment per_group_count
+                        per_group_count[note_metadata.get('labelId', None)] = per_group_count.get(note_metadata.get('labelId', None), 0) + 1
+
+            return {"note_ids": note_ids, "per_group_count": per_group_count} 
     else:
         raise Exception(f'File {NOTES_LIST_PATH.absolute()} does not exist.')
 
+
 def export_notes(note_ids: set[str] | None = None):
     pass
+
