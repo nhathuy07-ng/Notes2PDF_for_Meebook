@@ -6,16 +6,6 @@ NOTES_ROOT = Path("notes")
 NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
 NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
 
-def start_element(name, attrs):
-    print('Start element:', name, attrs)
-
-def end_element(name):
-    print('End element:', name)
-
-def char_data(data):
-    print('Character data:', repr(data))
-
-
 def list_groups() -> dict[str, str]:
     group_ids: dict[str | None, str] = {None: "[Not grouped]"}
     if NOTES_LABEL_PATH.exists():
