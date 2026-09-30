@@ -46,6 +46,3 @@ def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
 
 def export_notes(note_ids: set[str] | None = None):
     pass
-
-print(list_groups())
-print(list_notes(set(["labelid-1790215089714", None])))
