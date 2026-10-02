@@ -8,6 +8,7 @@ NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
 NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
 
 NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
+NOTE_PAGE = NOTES_ROOT / "{noteId}" / "res" / "pageId_{pageId}.png"
 NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
 EXPORT_TARGET_ROOT = Path("Exported PDFs")
 EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}"
@@ -121,10 +122,15 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
     
     for note_id, note_name in note_name_by_id.items():
         # Load page list
+        page_ids = []
+        with open(pf(NOTE_CONF, noteId=note_id)) as o:
+            page_ids = json.load(o)["pageIds"]
 
-        # TODO: Create folders by existing group names, with "Not grouped" case going into the [Not grouped] folder. Ignore if folder exists.
+        print(page_ids)
 
         # TODO: For each note, hash and compare hash of each page to the hashes file. If all pages match, skip file.
+        for page_id in page_ids:
+            pass
 
         # TODO: Generate files by getting each page's resolution, add a PDF page, set or add a white background if needed.
 
@@ -135,6 +141,7 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
 if __name__ == '__main__':
     note_groups = list(list_groups().items())
     note_groups.sort(key=lambda x: x[1])
+
     for i, entry in enumerate(note_groups):
         note_id, note_label = entry
         print(f"{i}. {note_label}")
