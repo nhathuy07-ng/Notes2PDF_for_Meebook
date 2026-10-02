@@ -6,6 +6,7 @@ from PIL import Image
 import hashlib
 import os
 import platform
+import tqdm
 import subprocess
 
 NOTES_ROOT = Path("notes")
@@ -139,9 +140,8 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
             page_ids = json.load(o)["pageIds"]
 
         # TODO: Generate files by getting each page's resolution, add a PDF page, set or add a white background if needed.
-        pdf = FPDF()
+        pdf = FPDF(unit="pt")
         for page_i, page_id in enumerate(page_ids):
-
             try:
                 # check image size
                 img_size = (0, 0)
