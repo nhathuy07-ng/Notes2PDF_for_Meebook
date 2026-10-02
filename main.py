@@ -9,7 +9,9 @@ NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
 
 NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
 NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
-EXPORT_TARGET_PER_NOTE = Path("Exported PDFs") / "{datetime}" / "{groupName}"
+EXPORT_TARGET_ROOT = Path("Exported PDFs")
+EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{datetime}" / "{groupName}"
+EXPORT_TARGET_HASHES = EXPORT_TARGET_ROOT / "hashes.json" 
 
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
 # TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. File opener/reader shall return text string.
@@ -28,6 +30,31 @@ def pf(path: Path, **kwargs):
 
     return path.__str__().format(**kwargs)
 
+def wait_for_user_select(source_list: list[any]):
+    raw_in = input("Select entries (e.g 0, 1, 2-7) or skip to select all: ")
+
+    if raw_in.strip() == '':
+        return source_list # selects all
+
+    try:
+        sel = []
+        for n in raw_in.split(','):
+            if "-" in n:
+                # parse range (inclusive)
+                nstart, nend = n.split("-")
+                sel.extend(source_list[int(nstart):int(nend)+1])
+                continue
+
+            # parse single num
+            try:
+                nnum = int(n.strip())
+                sel.append(source_list[nnum])
+            except:
+                continue
+        return sel
+    except Exception as e:
+        raise Exception(f"Input error: {e}")
+
 def list_groups() -> dict[str, str]:
     group_name_by_id: dict[str | None, str] = {None: "[Not grouped]"}
     if NOTES_LABEL_PATH.exists():
@@ -36,7 +63,6 @@ def list_groups() -> dict[str, str]:
             for x in etree.findall('string'):
                 if x.get('name').startswith('labelid-'):
                     group_name_by_id[x.get('name')] = json.loads(x.text)['labelName']
-                # print([(x.get('name'), json.loads(x.text)['labelName']) for x in etree.findall('string') if x.get('name').startswith('labelid-')])
     else:
         raise Exception(f"File {NOTES_LABEL_PATH.absolute()} does not exist.")
 
@@ -75,14 +101,21 @@ def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
     else:
         raise Exception(f'File {NOTES_LIST_PATH.absolute()} does not exist.')
 
-print(list_groups())
-print(list_notes())
-
 def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, str], group_name_by_id: dict[str, str]):
+            
+    if not EXPORT_TARGET_ROOT.exists():
+        EXPORT_TARGET_ROOT.mkdir(parents=True, exist_ok=True)
+
+    page_hashes_by_noteid: dict[str, list[str]] = {}
+    if EXPORT_TARGET_HASHES.exists():
+        with open(EXPORT_TARGET_HASHES) as o:
+            page_hashes_by_noteid = json.load(o)
+    else:
+        with open(EXPORT_TARGET_HASHES, "a") as w:
+            json.dump(page_hashes_by_noteid, w)
+            
     for note_id, note_name in note_name_by_id.items():
         # Load page list
-
-        # TODO: Create an empty file containing per-page hashes if file not exist. Load that file if exists.
 
         # TODO: Create folders by existing group names, with "Not grouped" case going into the [Not grouped] folder. Ignore if folder exists.
 
@@ -93,3 +126,23 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
         # TODO: When generation is complete, open the export root folder. Write binding for each platforms.
 
         pass
+
+if __name__ == '__main__':
+    note_groups = list(list_groups().items())
+    note_groups.sort(key=lambda x: x[1])
+    for i, entry in enumerate(note_groups):
+        note_id, note_label = entry
+        print(f"{i}. {note_label}")
+
+    group_id_sel = []
+    while True:
+        try:
+            group_id_sel = wait_for_user_select([group_id for group_id, group_label in note_groups])
+        except Exception as e:
+            print(e)
+        else:
+            break
+
+    notes = list_notes(group_id_sel)
+    print(f"Exporting {sum([x[1] for x in notes['per_group_count'].items()])} notes...")
+    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups())
