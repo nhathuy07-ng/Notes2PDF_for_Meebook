@@ -3,25 +3,32 @@ from xml.etree import ElementTree
 from fpdf import FPDF
 import json
 from PIL import Image
-import hashlib
 import os
 import platform
-import tqdm
 import subprocess
+from multiprocessing import Pool
+import crossfiledialog
 
-NOTES_ROOT = Path("notes")
-NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
-NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
+paths = {}
 
-NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
-NOTE_PAGE = NOTES_ROOT / "{noteId}" / "res" / "pageId_{pageId}.png"
-NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
 EXPORT_TARGET_ROOT = Path("Exported PDFs")
 EXPORT_TARGET_PER_GROUP = EXPORT_TARGET_ROOT / "{groupName}"
 EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}" / "{fileName}.pdf"
 
+def prompt_set_up_source_path():
+    global paths
+    source_folder = crossfiledialog.choose_folder("Select source folder...")
+    paths = {
+        "NOTES_ROOT": Path(source_folder),
+        "NOTES_LABEL_PATH": Path(source_folder) / "data" / "notes_label.xml",
+        "NOTES_LIST_PATH": Path(source_folder) / "data" / "notes.xml",
+        "NOTE_PAGES": Path(source_folder) / "{noteId}" / "res",
+        "NOTE_PAGE": Path(source_folder) / "{noteId}" / "res" / "pageId_{pageId}.png",
+        "NOTE_CONF": Path(source_folder) / "{noteId}" / "conf" / "note.conf"
+    }
+
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
-# TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. File opener/reader shall return text string.
+# TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. For files via mtp:/, a preprocessor to copy files on demand to sharedmem might be considered.
 
 def open_dir_default_tool(dir: Path):
     """
@@ -79,14 +86,14 @@ def wait_for_user_select(source_list: list[any]):
 
 def list_groups() -> dict[str, str]:
     group_name_by_id: dict[str | None, str] = {None: "[Not grouped]"}
-    if NOTES_LABEL_PATH.exists():
-        with open(NOTES_LABEL_PATH) as o:
+    if paths["NOTES_LABEL_PATH"].exists():
+        with open(paths["NOTES_LABEL_PATH"]) as o:
             etree = ElementTree.fromstring(o.read())
             for x in etree.findall('string'):
                 if x.get('name').startswith('labelid-'):
                     group_name_by_id[x.get('name')] = json.loads(x.text)['labelName']
     else:
-        raise Exception(f"File {NOTES_LABEL_PATH.absolute()} does not exist.")
+        raise Exception(f"File {paths["NOTES_LABEL_PATH"].absolute()} does not exist.")
 
     return group_name_by_id
 
@@ -96,8 +103,8 @@ def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
     per_group_count: dict[str, str] = {}
 
     print(group_ids)
-    if NOTES_LIST_PATH.exists():
-        with open(NOTES_LIST_PATH) as o:
+    if paths["NOTES_LIST_PATH"].exists():
+        with open (paths["NOTES_LIST_PATH"]) as o:
 
             etree = ElementTree.fromstring(o.read())
 
@@ -121,9 +128,35 @@ def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
 
             return {"note_name_by_id": note_name_by_id, "per_group_count": per_group_count, "note_groupid_by_id": note_groupid_by_id} 
     else:
-        raise Exception(f'File {NOTES_LIST_PATH.absolute()} does not exist.')
+        raise Exception(f'File {paths["NOTES_LIST_PATH"].absolute()} does not exist.')
 
-def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, str], group_name_by_id: dict[str, str]):
+def note_export_worker(worker_input):
+    note_id, note_name, group_name_by_id, note_groupid_by_id, paths = worker_input
+    # Load page list
+    page_ids: list[str] = []
+    with open(pf(paths["NOTE_CONF"], noteId=note_id)) as o:
+        page_ids = json.load(o)["pageIds"]
+
+    pdf = FPDF(unit="pt")
+    img_size = None
+
+    for page_i, page_id in enumerate(page_ids):
+        try:
+            # check image size for first page only
+            with Image.open(pf(paths["NOTE_PAGE"], noteId=note_id, pageId=page_id)) as im_open:
+                if img_size == None:
+                    img_size = im_open.size
+        
+            pdf.add_page(format=img_size)
+            pdf.image(pf(paths["NOTE_PAGE"], noteId=note_id, pageId=page_id), x=0, y=0)
+
+        except Exception as e:
+            print(f" [WARN] Document '{note_name}', page {page_id} (index {page_i}) skipped due to: {e}")
+        
+    pdf.output(pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[note_groupid_by_id[note_id]], fileName=note_name)) 
+    print(note_name + " done!")
+
+def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, str], group_name_by_id: dict[str, str], threads: int=8):
             
     if not EXPORT_TARGET_ROOT.exists():
         EXPORT_TARGET_ROOT.mkdir(parents=True, exist_ok=True)
@@ -132,35 +165,15 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
     for group_id in group_ids:
         if not pf(EXPORT_TARGET_PER_GROUP, groupName=group_name_by_id[group_id]).exists():
             pf(EXPORT_TARGET_PER_GROUP, groupName=group_name_by_id[group_id]).mkdir(parents=True, exist_ok=True)
-    
-    for note_id, note_name in note_name_by_id.items():
-        # Load page list
-        page_ids: list[str] = []
-        with open(pf(NOTE_CONF, noteId=note_id)) as o:
-            page_ids = json.load(o)["pageIds"]
 
-        # TODO: Generate files by getting each page's resolution, add a PDF page, set or add a white background if needed.
-        pdf = FPDF(unit="pt")
-        for page_i, page_id in enumerate(page_ids):
-            try:
-                # check image size
-                img_size = (0, 0)
-                with Image.open(pf(NOTE_PAGE, noteId=note_id, pageId=page_id)) as im_open:
-                    img_size = im_open.size
-            except Exception as e:
-                print(f"WARN: Document '{note_name}', page {page_id} (index {page_i}) skipped due to: {e}")
-            else:
-                pdf.add_page(format=img_size)
-                pdf.image(pf(NOTE_PAGE, noteId=note_id, pageId=page_id), x=0, y=0)
-            
-
-        pdf.output(pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[note_groupid_by_id[note_id]], fileName=note_name))
-
-        # TODO: When generation is complete, open the export root folder. Write binding for each platforms.
-    open_dir_default_tool(EXPORT_TARGET_ROOT)
+    # TODO: Multithread this
+    with Pool(threads) as p:
+        p.map(note_export_worker, [(note_id, note_name, group_name_by_id, note_groupid_by_id, paths) for note_id, note_name in note_name_by_id.items()])           
         
-
 if __name__ == '__main__':
+
+    prompt_set_up_source_path()
+
     note_groups = list(list_groups().items())
     note_groups.sort(key=lambda x: x[1])
 
@@ -179,4 +192,6 @@ if __name__ == '__main__':
 
     notes = list_notes(group_id_sel)
     print(f"Exporting {sum([x[1] for x in notes['per_group_count'].items()])} notes...")
-    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups())
+
+    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=19)
+    open_dir_default_tool(EXPORT_TARGET_ROOT)
