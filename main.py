@@ -10,7 +10,7 @@ NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
 NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
 NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
 EXPORT_TARGET_ROOT = Path("Exported PDFs")
-EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{datetime}" / "{groupName}"
+EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}"
 EXPORT_TARGET_HASHES = EXPORT_TARGET_ROOT / "hashes.json" 
 
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
@@ -28,7 +28,7 @@ def pf(path: Path, **kwargs):
         str: formatted string
     """
 
-    return path.__str__().format(**kwargs)
+    return Path(path.__str__().format(**kwargs))
 
 def wait_for_user_select(source_list: list[any]):
     raw_in = input("Select entries (e.g 0, 1, 2-7) or skip to select all: ")
@@ -113,7 +113,12 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
     else:
         with open(EXPORT_TARGET_HASHES, "a") as w:
             json.dump(page_hashes_by_noteid, w)
-            
+
+    group_ids = note_groupid_by_id.values()
+    for group_id in group_ids:
+        if not pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[group_id]).exists():
+            pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[group_id]).mkdir(parents=True, exist_ok=True)
+    
     for note_id, note_name in note_name_by_id.items():
         # Load page list
 
