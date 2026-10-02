@@ -2,7 +2,7 @@ from pathlib import Path
 from xml.etree import ElementTree
 from fpdf import FPDF
 import json
-
+from PIL import Image
 import hashlib
 
 NOTES_ROOT = Path("notes")
@@ -13,7 +13,8 @@ NOTE_PAGES = NOTES_ROOT / "{noteId}" / "res"
 NOTE_PAGE = NOTES_ROOT / "{noteId}" / "res" / "pageId_{pageId}.png"
 NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
 EXPORT_TARGET_ROOT = Path("Exported PDFs")
-EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}"
+EXPORT_TARGET_PER_GROUP = EXPORT_TARGET_ROOT / "{groupName}"
+EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}" / "{fileName}.pdf"
 
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
 # TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. File opener/reader shall return text string.
@@ -110,8 +111,8 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
 
     group_ids = note_groupid_by_id.values()
     for group_id in group_ids:
-        if not pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[group_id]).exists():
-            pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[group_id]).mkdir(parents=True, exist_ok=True)
+        if not pf(EXPORT_TARGET_PER_GROUP, groupName=group_name_by_id[group_id]).exists():
+            pf(EXPORT_TARGET_PER_GROUP, groupName=group_name_by_id[group_id]).mkdir(parents=True, exist_ok=True)
     
     for note_id, note_name in note_name_by_id.items():
         # Load page list
@@ -120,10 +121,26 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
             page_ids = json.load(o)["pageIds"]
 
         # TODO: Generate files by getting each page's resolution, add a PDF page, set or add a white background if needed.
+        pdf = FPDF()
+        for page_i, page_id in enumerate(page_ids):
+
+            try:
+                # check image size
+                img_size = (0, 0)
+                with Image.open(pf(NOTE_PAGE, noteId=note_id, pageId=page_id)) as im_open:
+                    img_size = im_open.size
+            except Exception as e:
+                print(f"WARN: Document '{note_name}', page {page_id} (index {page_i}) skipped due to: {e}")
+            else:
+                pdf.add_page(format=img_size)
+                pdf.image(pf(NOTE_PAGE, noteId=note_id, pageId=page_id), x=0, y=0)
+            
+
+        pdf.output(pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[note_groupid_by_id[note_id]], fileName=note_name))
 
         # TODO: When generation is complete, open the export root folder. Write binding for each platforms.
 
-        pass
+        
 
 if __name__ == '__main__':
     note_groups = list(list_groups().items())
