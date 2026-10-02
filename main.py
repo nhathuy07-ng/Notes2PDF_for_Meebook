@@ -3,6 +3,8 @@ from xml.etree import ElementTree
 from fpdf import FPDF
 import json
 
+import hashlib
+
 NOTES_ROOT = Path("notes")
 NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
 NOTES_LIST_PATH = NOTES_ROOT / "data" / "notes.xml"
@@ -12,7 +14,6 @@ NOTE_PAGE = NOTES_ROOT / "{noteId}" / "res" / "pageId_{pageId}.png"
 NOTE_CONF = NOTES_ROOT / "{noteId}" / "conf" / "note.conf"
 EXPORT_TARGET_ROOT = Path("Exported PDFs")
 EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}"
-EXPORT_TARGET_HASHES = EXPORT_TARGET_ROOT / "hashes.json" 
 
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
 # TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. File opener/reader shall return text string.
@@ -107,14 +108,6 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
     if not EXPORT_TARGET_ROOT.exists():
         EXPORT_TARGET_ROOT.mkdir(parents=True, exist_ok=True)
 
-    page_hashes_by_noteid: dict[str, list[str]] = {}
-    if EXPORT_TARGET_HASHES.exists():
-        with open(EXPORT_TARGET_HASHES) as o:
-            page_hashes_by_noteid = json.load(o)
-    else:
-        with open(EXPORT_TARGET_HASHES, "a") as w:
-            json.dump(page_hashes_by_noteid, w)
-
     group_ids = note_groupid_by_id.values()
     for group_id in group_ids:
         if not pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[group_id]).exists():
@@ -122,15 +115,9 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
     
     for note_id, note_name in note_name_by_id.items():
         # Load page list
-        page_ids = []
+        page_ids: list[str] = []
         with open(pf(NOTE_CONF, noteId=note_id)) as o:
             page_ids = json.load(o)["pageIds"]
-
-        print(page_ids)
-
-        # TODO: For each note, hash and compare hash of each page to the hashes file. If all pages match, skip file.
-        for page_id in page_ids:
-            pass
 
         # TODO: Generate files by getting each page's resolution, add a PDF page, set or add a white background if needed.
 
