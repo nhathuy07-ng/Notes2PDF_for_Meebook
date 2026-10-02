@@ -4,6 +4,9 @@ from fpdf import FPDF
 import json
 from PIL import Image
 import hashlib
+import os
+import platform
+import subprocess
 
 NOTES_ROOT = Path("notes")
 NOTES_LABEL_PATH = NOTES_ROOT / "data" / "notes_label.xml"
@@ -18,6 +21,21 @@ EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}" / "{fileName}.pdf"
 
 # TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
 # TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. File opener/reader shall return text string.
+
+def open_dir_default_tool(dir: Path):
+    """
+    Opens a directory in the OS's default tool
+    """
+    match platform.system():
+        case 'Linux':
+            subprocess.run(['xdg-open', str(dir)])
+        case 'Darwin':
+            subprocess.run(['open', str(dir)])
+        case 'Windows':
+            os.startfile(str(dir))
+        case _:
+            print(f"Opening directory: {dir} in default app failed. OS not supported.")
+
 
 def pf(path: Path, **kwargs):
     """
@@ -139,7 +157,7 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
         pdf.output(pf(EXPORT_TARGET_PER_NOTE, groupName=group_name_by_id[note_groupid_by_id[note_id]], fileName=note_name))
 
         # TODO: When generation is complete, open the export root folder. Write binding for each platforms.
-
+    open_dir_default_tool(EXPORT_TARGET_ROOT)
         
 
 if __name__ == '__main__':
