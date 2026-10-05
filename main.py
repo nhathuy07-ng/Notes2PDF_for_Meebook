@@ -205,6 +205,10 @@ def note_export_worker(worker_input):
     print(note_name + " done!")
 
 def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, str], group_name_by_id: dict[str, str], threads: int=8):
+
+    if str(paths['NOTES_ROOT']).startswith('mtp:/'):
+        # Limits thread to 1 when MTP is used since MTP can only handle sequential file pulls
+        threads=1
     
     if not EXPORT_TARGET_ROOT.exists():
         EXPORT_TARGET_ROOT.mkdir(parents=True, exist_ok=True)
@@ -246,5 +250,5 @@ if __name__ == '__main__':
     notes = list_notes(group_id_sel)
     print(f"Exporting {sum([x[1] for x in notes['per_group_count'].items()])} notes...")
 
-    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=1)
+    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=8)
     open_dir_default_tool(EXPORT_TARGET_ROOT)
