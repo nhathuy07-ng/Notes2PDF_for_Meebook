@@ -50,13 +50,20 @@ def set_up_source_path():
             "EXPORT_TARGET_PER_NOTE": Path("Exported PDFs") / "{groupName}" / "{fileName}.pdf"
         }
 
-def fetch_img_file_if_mtp():
-    pass
+def handle_open_bin_file(path: Path | str):
+    print(path)
+    if str(path).startswith('mtp:/'):
+        proc = subprocess.run(['kioclient', 'cat', str(path)], stdout=subprocess.PIPE)
+        byte_out = proc.stdout
+        byte_io = io.BytesIO()
+        byte_io.write(byte_out)
+        byte_io.seek(0)
+        
+        return byte_io
+    else:
+        return open(path, 'rb')
 
-# TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP using kioclient.
-# TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. For files via mtp:/, a preprocessor to copy files on demand to sharedmem might be considered.
-
-def handle_open_text_file(path: Path):
+def handle_open_text_file(path: Path | str):
     print(path)
     if str(path).startswith('mtp:/'):
         proc = subprocess.run(['kioclient', 'cat', str(path)], stdout=subprocess.PIPE)
@@ -183,12 +190,13 @@ def note_export_worker(worker_input):
     for page_i, page_id in enumerate(page_ids):
         try:
             # check image size for first page only
-            with Image.open(pf(paths["NOTE_PAGE"], noteId=note_id, pageId=page_id)) as im_open:
-                if img_size == None:
-                    img_size = im_open.size
-        
-            pdf.add_page(format=img_size)
-            pdf.image(pf(paths["NOTE_PAGE"], noteId=note_id, pageId=page_id), x=0, y=0)
+            with handle_open_bin_file(pf(paths["NOTE_PAGE"], noteId=note_id, pageId=page_id)) as ob:
+                with Image.open(ob) as im_open:
+                    if img_size == None:
+                        img_size = im_open.size
+                ob.seek(0)
+                pdf.add_page(format=img_size)
+                pdf.image(ob, x=0, y=0)
 
         except Exception as e:
             print(f" [WARN] Document '{note_name}', page {page_id} (index {page_i}) skipped due to: {e}")
@@ -197,7 +205,7 @@ def note_export_worker(worker_input):
     print(note_name + " done!")
 
 def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, str], group_name_by_id: dict[str, str], threads: int=8):
-            
+    
     if not EXPORT_TARGET_ROOT.exists():
         EXPORT_TARGET_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -238,5 +246,5 @@ if __name__ == '__main__':
     notes = list_notes(group_id_sel)
     print(f"Exporting {sum([x[1] for x in notes['per_group_count'].items()])} notes...")
 
-    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=4)
+    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=1)
     open_dir_default_tool(EXPORT_TARGET_ROOT)
