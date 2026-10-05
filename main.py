@@ -7,7 +7,10 @@ import os
 import platform
 import subprocess
 from multiprocessing import Pool
+import sys
 import crossfiledialog
+import io
+import shutil
 
 paths = {}
 
@@ -15,25 +18,62 @@ EXPORT_TARGET_ROOT = Path("Exported PDFs")
 EXPORT_TARGET_PER_GROUP = EXPORT_TARGET_ROOT / "{groupName}"
 EXPORT_TARGET_PER_NOTE = EXPORT_TARGET_ROOT / "{groupName}" / "{fileName}.pdf"
 
-def prompt_set_up_source_path():
+def set_up_source_path():
     global paths
     source_folder = crossfiledialog.choose_folder("Select source folder...")
-    paths = {
-        "NOTES_ROOT": Path(source_folder),
-        "NOTES_LABEL_PATH": Path(source_folder) / "data" / "notes_label.xml",
-        "NOTES_LIST_PATH": Path(source_folder) / "data" / "notes.xml",
-        "NOTE_PAGES": Path(source_folder) / "{noteId}" / "res",
-        "NOTE_PAGE": Path(source_folder) / "{noteId}" / "res" / "pageId_{pageId}.png",
-        "NOTE_CONF": Path(source_folder) / "{noteId}" / "conf" / "note.conf"
-    }
+    print(source_folder)
+    if not source_folder:
+        print("Path not selected. Exiting...")
+        sys.exit(-1)
+    if source_folder.startswith('mtp:/'):
+        paths = {
+            "NOTES_ROOT": source_folder,
+            "NOTES_LABEL_PATH": f"{source_folder}/data/notes_label.xml",
+            "NOTES_LIST_PATH": f"{source_folder}/data/notes.xml",
+            "NOTE_PAGES": source_folder + "/{noteId}/res",
+            "NOTE_PAGE": source_folder + "/{noteId}/res/pageId_{pageId}.png",
+            "NOTE_CONF": source_folder + "/{noteId}/conf/note.conf",
+            "EXPORT_TARGET_ROOT": Path("Exported PDFs"),
+            "EXPORT_TARGET_PER_GROUP": Path("Exported PDFs") / "{groupName}",
+            "EXPORT_TARGET_PER_NOTE": Path("Exported PDFs") / "{groupName}" / "{fileName}.pdf"
+        }
+    else:
+        paths = {
+            "NOTES_ROOT": Path(source_folder),
+            "NOTES_LABEL_PATH": Path(source_folder) / "data" / "notes_label.xml",
+            "NOTES_LIST_PATH": Path(source_folder) / "data" / "notes.xml",
+            "NOTE_PAGES": Path(source_folder) / "{noteId}" / "res",
+            "NOTE_PAGE": Path(source_folder) / "{noteId}" / "res" / "pageId_{pageId}.png",
+            "NOTE_CONF": Path(source_folder) / "{noteId}" / "conf" / "note.conf",
+            "EXPORT_TARGET_ROOT": Path("Exported PDFs"),
+            "EXPORT_TARGET_PER_GROUP": Path("Exported PDFs") / "{groupName}",
+            "EXPORT_TARGET_PER_NOTE": Path("Exported PDFs") / "{groupName}" / "{fileName}.pdf"
+        }
 
-# TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP.
+def fetch_img_file_if_mtp():
+    pass
+
+# TODO: Implement a file opener to select folder to parse. Experimental feature: if given mtp:/ (KDE-specific), fetch file content from MTP using kioclient.
 # TODO: Decouple the file opener/reader to allow for reading from both MTP (kioclient) and normal files. For files via mtp:/, a preprocessor to copy files on demand to sharedmem might be considered.
+
+def handle_open_text_file(path: Path):
+    print(path)
+    if str(path).startswith('mtp:/'):
+        proc = subprocess.run(['kioclient', 'cat', str(path)], stdout=subprocess.PIPE)
+        str_out = proc.stdout.decode('utf-8')
+        str_io = io.StringIO()
+        str_io.write(str_out)
+        str_io.seek(0)
+        
+        return str_io
+    else:
+        return open(path)
 
 def open_dir_default_tool(dir: Path):
     """
     Opens a directory in the OS's default tool
     """
+    print(f"Opening directory: {dir} in default app...")
     match platform.system():
         case 'Linux':
             subprocess.run(['xdg-open', str(dir)])
@@ -45,7 +85,7 @@ def open_dir_default_tool(dir: Path):
             print(f"Opening directory: {dir} in default app failed. OS not supported.")
 
 
-def pf(path: Path, **kwargs):
+def pf(path: Path | str, **kwargs):
     """
     Formats a pathlib.Path using .format()
 
@@ -56,8 +96,10 @@ def pf(path: Path, **kwargs):
     Returns: 
         str: formatted string
     """
-
-    return Path(path.__str__().format(**kwargs))
+    if isinstance(path, Path):
+        return Path(path.__str__().format(**kwargs))
+    else:
+        return path.format(**kwargs)
 
 def wait_for_user_select(source_list: list[any]):
     raw_in = input("Select entries (e.g 0, 1, 2-7) or skip to select all: ")
@@ -86,25 +128,23 @@ def wait_for_user_select(source_list: list[any]):
 
 def list_groups() -> dict[str, str]:
     group_name_by_id: dict[str | None, str] = {None: "[Not grouped]"}
-    if paths["NOTES_LABEL_PATH"].exists():
-        with open(paths["NOTES_LABEL_PATH"]) as o:
-            etree = ElementTree.fromstring(o.read())
-            for x in etree.findall('string'):
-                if x.get('name').startswith('labelid-'):
-                    group_name_by_id[x.get('name')] = json.loads(x.text)['labelName']
-    else:
-        raise Exception(f"File {paths["NOTES_LABEL_PATH"].absolute()} does not exist.")
+    with handle_open_text_file(paths["NOTES_LABEL_PATH"]) as o:
+        etree = ElementTree.fromstring(o.read())
+        for x in etree.findall('string'):
+            if x.get('name').startswith('labelid-'):
+                group_name_by_id[x.get('name')] = json.loads(x.text)['labelName']
+
 
     return group_name_by_id
-
+  
 def list_notes(group_ids: set[str] | None = None) -> dict[str, str]:
     note_name_by_id: dict[str, str] = {}
     note_groupid_by_id: dict[str, str] = {}
     per_group_count: dict[str, str] = {}
 
     print(group_ids)
-    if paths["NOTES_LIST_PATH"].exists():
-        with open (paths["NOTES_LIST_PATH"]) as o:
+    if type(paths["NOTES_LIST_PATH"]) == str or paths["NOTES_LIST_PATH"].exists():
+        with handle_open_text_file(paths["NOTES_LIST_PATH"]) as o:
 
             etree = ElementTree.fromstring(o.read())
 
@@ -134,7 +174,7 @@ def note_export_worker(worker_input):
     note_id, note_name, group_name_by_id, note_groupid_by_id, paths = worker_input
     # Load page list
     page_ids: list[str] = []
-    with open(pf(paths["NOTE_CONF"], noteId=note_id)) as o:
+    with handle_open_text_file(pf(paths["NOTE_CONF"], noteId=note_id)) as o:
         page_ids = json.load(o)["pageIds"]
 
     pdf = FPDF(unit="pt")
@@ -172,7 +212,8 @@ def export_notes(note_name_by_id: dict[str, str], note_groupid_by_id: dict[str, 
         
 if __name__ == '__main__':
 
-    prompt_set_up_source_path()
+    # Interactively set up source path
+    set_up_source_path()
 
     note_groups = list(list_groups().items())
     note_groups.sort(key=lambda x: x[1])
@@ -190,8 +231,12 @@ if __name__ == '__main__':
         else:
             break
 
+    override_mode = input(f"Delete existing directory '{paths['EXPORT_TARGET_ROOT'].absolute()}' (if exists?) [y/n]")
+    if override_mode.lower() == 'y' and paths['EXPORT_TARGET_ROOT'].exists():
+        shutil.rmtree(paths['EXPORT_TARGET_ROOT'])
+
     notes = list_notes(group_id_sel)
     print(f"Exporting {sum([x[1] for x in notes['per_group_count'].items()])} notes...")
 
-    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=19)
+    export_notes(notes['note_name_by_id'], notes['note_groupid_by_id'], list_groups(), threads=4)
     open_dir_default_tool(EXPORT_TARGET_ROOT)
